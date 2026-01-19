@@ -20,6 +20,7 @@ Requirements:
 from __future__ import annotations
 
 import html
+import os
 import re
 import shutil
 import subprocess
@@ -62,11 +63,16 @@ def render_pdf_pages_to_png(pdf_path: Path, out_dir: Path, prefix_slug: str) -> 
     """Render a PDF to per-page PNGs using pdftoppm.
 
     Notes on quality:
-    - We render at a relatively high DPI to preserve sharp text/lines.
-    - This increases output size, but produces much better quality on large screens.
+    - Higher DPI yields better quality but increases build time and output size.
+
+    Configuration:
+    - Set environment variable `PDF_RENDER_DPI` (e.g. 300, 450, 600).
+      Default is 300 (high quality, practical for CI).
     """
     if shutil.which("pdftoppm") is None:
         return []
+
+    dpi = int(os.environ.get("PDF_RENDER_DPI", "600"))
 
     out_dir.mkdir(parents=True, exist_ok=True)
 
@@ -76,7 +82,7 @@ def render_pdf_pages_to_png(pdf_path: Path, out_dir: Path, prefix_slug: str) -> 
         "pdftoppm",
         "-png",
         "-r",
-        "300",
+        str(dpi),
         str(pdf_path),
         str(prefix),
     ]
@@ -133,13 +139,17 @@ def site_html(items_in_order: list[tuple[str, list[str]]]) -> str:
         "      /*\n"
         "        Keep pages at their native pixel size when possible (best quality).\n"
         "        Only scale DOWN to fit the viewport; never upscale.\n"
+        "\n"
+        "        Additionally, scale display down to 90% (requested).\n"
         "      */\n"
         "      #pageImg {\n"
-        "        max-width: 100vw;\n"
-        "        max-height: 100vh;\n"
+        "        max-width: calc(100vw * 0.9);\n"
+        "        max-height: calc(100vh * 0.9);\n"
         "        width: auto;\n"
         "        height: auto;\n"
         "        display: block;\n"
+        "        transform: scale(0.9);\n"
+        "        transform-origin: center center;\n"
         "        image-rendering: auto;\n"
         "      }\n"
         "\n"
