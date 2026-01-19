@@ -141,7 +141,7 @@ def site_html(items_in_order: list[tuple[str, list[str]]]) -> str:
         "        The image itself still uses its native pixel size unless it has to shrink to fit.\n"
         "      */\n"
         "      .page-scale {\n"
-        "        transform: scale(0.9);\n"
+        "        transform: scale(0.95);\n"
         "        transform-origin: center center;\n"
         "        display: grid;\n"
         "        place-items: center;\n"
