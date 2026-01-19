@@ -59,7 +59,12 @@ def run(cmd: list[str]) -> None:
 
 
 def render_pdf_pages_to_png(pdf_path: Path, out_dir: Path, prefix_slug: str) -> list[Path]:
-    """Render a PDF to per-page PNGs using pdftoppm."""
+    """Render a PDF to per-page PNGs using pdftoppm.
+
+    Notes on quality:
+    - We render at a relatively high DPI to preserve sharp text/lines.
+    - This increases output size, but produces much better quality on large screens.
+    """
     if shutil.which("pdftoppm") is None:
         return []
 
@@ -71,7 +76,7 @@ def render_pdf_pages_to_png(pdf_path: Path, out_dir: Path, prefix_slug: str) -> 
         "pdftoppm",
         "-png",
         "-r",
-        "144",
+        "300",
         str(pdf_path),
         str(prefix),
     ]
@@ -125,13 +130,17 @@ def site_html(items_in_order: list[tuple[str, list[str]]]) -> str:
         "        background: #fff;\n"
         "      }\n"
         "\n"
-        "      /* The page image always fits within the viewport, centered */\n"
+        "      /*\n"
+        "        Keep pages at their native pixel size when possible (best quality).\n"
+        "        Only scale DOWN to fit the viewport; never upscale.\n"
+        "      */\n"
         "      #pageImg {\n"
         "        max-width: 100vw;\n"
         "        max-height: 100vh;\n"
         "        width: auto;\n"
         "        height: auto;\n"
         "        display: block;\n"
+        "        image-rendering: auto;\n"
         "      }\n"
         "\n"
         "      .nav {\n"
