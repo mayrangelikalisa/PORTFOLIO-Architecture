@@ -66,13 +66,11 @@ def run(cmd: list[str]) -> None:
 def render_pdf_pages_to_png(pdf_path: Path, out_dir: Path) -> list[Path]:
     """Render pages to PNG using pdftoppm.
 
-    Produces files like page-1.png, page-2.png, ...
+    Produces files like page-01.png, page-02.png, ... (Poppler default).
 
-    If pdftoppm isn't available, returns an empty list and the build will still
-    produce text-only HTML pages.
+    If pdftoppm isn't available, returns an empty list.
     """
     if shutil.which("pdftoppm") is None:
-        # Allow local builds without poppler; CI installs poppler-utils.
         return []
 
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -89,13 +87,18 @@ def render_pdf_pages_to_png(pdf_path: Path, out_dir: Path) -> list[Path]:
     ]
     run(cmd)
 
-    images = sorted(out_dir.glob("page-*.png"), key=lambda p: _page_num(p.name))
+    images = sorted(out_dir.glob("page-*.png"))
     return images
 
 
 def _page_num(filename: str) -> int:
     m = re.search(r"-(\d+)\.png$", filename)
     return int(m.group(1)) if m else 10**9
+
+
+def _img_name_for_page(page_num: int) -> str:
+    """Match Poppler's default numbering width (at least 2 digits: 01, 02, ...)."""
+    return f"page-{page_num:02d}.png"
 
 
 def page_html(title: str, page_num: int, total_pages: int, img_rel: str) -> str:
@@ -180,13 +183,16 @@ def main() -> None:
         items.append(PdfItem(title=title, slug=slug, pages=total_pages))
 
         for i in range(1, total_pages + 1):
-            img_name = f"page-{i}.png"
+            img_name = _img_name_for_page(i)
             img_path = out_img_dir / img_name
             img_rel = f"./img/{img_name}" if img_path.exists() else ""
 
             if not img_rel:
+                # Give a helpful hint by showing what files we actually have.
+                present = sorted(p.name for p in out_img_dir.glob('page-*.png'))
                 raise RuntimeError(
                     f"Missing rendered image for {pdf_path.name} page {i}. "
+                    f"Expected: {img_name}. Present: {present[:5]}{'...' if len(present) > 5 else ''}. "
                     "Ensure poppler-utils (pdftoppm) is installed in CI."
                 )
 
