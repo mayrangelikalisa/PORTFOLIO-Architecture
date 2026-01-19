@@ -4,12 +4,12 @@
 Output goal (per user requirements):
 - The website should reflect the PDF exactly, and only the PDF.
 - The published site must be reachable as a single path: `/index.html`.
-- The site should contain the whole PDF content as one page, where each PDF page is
-  displayed as a viewport-sized block (fits on screen without overflow).
+- Each PDF page should be displayed fully, fit to the screen, and centered.
+- Navigation between pages should be via left/right arrows (both sides of the screen).
 
 Implementation:
 - Render each PDF page to a PNG via Poppler (`pdftoppm`).
-- Generate ONE `dist/index.html` containing all pages in order.
+- Generate ONE `dist/index.html` that displays ONE page at a time (no scrolling).
 
 Requirements:
 - Python 3.11+
@@ -59,11 +59,7 @@ def run(cmd: list[str]) -> None:
 
 
 def render_pdf_pages_to_png(pdf_path: Path, out_dir: Path, prefix_slug: str) -> list[Path]:
-    """Render a PDF to per-page PNGs using pdftoppm.
-
-    Writes files like: {prefix_slug}-001.png
-    Returns sorted Path list.
-    """
+    """Render a PDF to per-page PNGs using pdftoppm."""
     if shutil.which("pdftoppm") is None:
         return []
 
@@ -91,30 +87,21 @@ def _page_num(filename: str) -> int:
 
 
 def site_html(items_in_order: list[tuple[str, list[str]]]) -> str:
-    """Create one HTML document containing all PDF pages, each as a fullscreen block."""
+    """Create a single-page PDF viewer (one page visible at a time)."""
 
-    sections: list[str] = []
-    for title, page_imgs_rel in items_in_order:
-        safe_title = html.escape(title)
-        for idx, img_rel in enumerate(page_imgs_rel, start=1):
-            sections.append(
-                "    <section class=\"page\" aria-label=\""
-                + safe_title
-                + " page "
-                + str(idx)
-                + "\">\n"
-                + "      <img class=\"page-img\" src=\""
-                + html.escape(img_rel)
-                + "\" alt=\""
-                + safe_title
-                + " page "
-                + str(idx)
-                + "\" />\n"
-                + "    </section>\n"
-            )
+    # Flatten to one ordered list of page images.
+    pages: list[str] = []
+    title = "No PDF"
+    if items_in_order:
+        title = items_in_order[0][0]
+    for _pdf_title, page_imgs_rel in items_in_order:
+        pages.extend(page_imgs_rel)
 
-    title = items_in_order[0][0] if items_in_order else "No PDF"
     safe_title = html.escape(title)
+
+    # Build a JS array of page URLs.
+    # IMPORTANT: do NOT HTML-escape here; emit valid JS string literals.
+    page_list_js = ",\n".join(f"      {p!r}" for p in pages)
 
     return (
         "<!doctype html>\n"
@@ -125,20 +112,21 @@ def site_html(items_in_order: list[tuple[str, list[str]]]) -> str:
         f"    <title>{safe_title}</title>\n"
         "    <style>\n"
         "      :root { color-scheme: light; }\n"
-        "      html, body { height: 100%; }\n"
-        "      body { margin: 0; background: #fff; }\n"
+        "      html, body { height: 100%; width: 100%; }\n"
+        "      body { margin: 0; overflow: hidden; background: #fff; }\n"
         "\n"
-        "      /* Each PDF page becomes a fullscreen block */\n"
-        "      .page {\n"
+        "      /* Viewer takes the whole viewport */\n"
+        "      .viewer {\n"
         "        height: 100vh;\n"
         "        width: 100vw;\n"
         "        display: grid;\n"
         "        place-items: center;\n"
+        "        position: relative;\n"
         "        background: #fff;\n"
         "      }\n"
         "\n"
-        "      /* Fit within viewport without overflow, preserving aspect ratio */\n"
-        "      .page-img {\n"
+        "      /* The page image always fits within the viewport, centered */\n"
+        "      #pageImg {\n"
         "        max-width: 100vw;\n"
         "        max-height: 100vh;\n"
         "        width: auto;\n"
@@ -146,15 +134,87 @@ def site_html(items_in_order: list[tuple[str, list[str]]]) -> str:
         "        display: block;\n"
         "      }\n"
         "\n"
-        "      @media print {\n"
-        "        .page { height: auto; width: auto; }\n"
-        "        .page-img { max-width: 100%; max-height: none; }\n"
+        "      .nav {\n"
+        "        position: absolute;\n"
+        "        top: 0;\n"
+        "        bottom: 0;\n"
+        "        width: 15vw;\n"
+        "        min-width: 60px;\n"
+        "        display: grid;\n"
+        "        place-items: center;\n"
+        "        cursor: pointer;\n"
+        "        user-select: none;\n"
+        "        color: rgba(0,0,0,0.65);\n"
+        "        font: 700 44px/1 system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;\n"
+        "        background: linear-gradient(to var(--dir), rgba(255,255,255,0.65), rgba(255,255,255,0));\n"
+        "      }\n"
+        "      .nav:hover { color: rgba(0,0,0,0.9); }\n"
+        "      .nav[aria-disabled=\"true\"] { opacity: 0; pointer-events: none; }\n"
+        "      .nav-left { left: 0; --dir: right; }\n"
+        "      .nav-right { right: 0; --dir: left; }\n"
+        "\n"
+        "      /* Small page counter */\n"
+        "      .counter {\n"
+        "        position: absolute;\n"
+        "        bottom: 10px;\n"
+        "        left: 50%;\n"
+        "        transform: translateX(-50%);\n"
+        "        padding: 6px 10px;\n"
+        "        border-radius: 999px;\n"
+        "        background: rgba(255,255,255,0.75);\n"
+        "        color: rgba(0,0,0,0.75);\n"
+        "        font: 600 12px/1.2 system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;\n"
         "      }\n"
         "    </style>\n"
         "  </head>\n"
         "  <body>\n"
-        + "".join(sections)
-        + "  </body>\n"
+        "    <div class=\"viewer\">\n"
+        "      <div class=\"nav nav-left\" id=\"prevBtn\" aria-label=\"Previous page\">&#10094;</div>\n"
+        "      <img id=\"pageImg\" alt=\"\" />\n"
+        "      <div class=\"nav nav-right\" id=\"nextBtn\" aria-label=\"Next page\">&#10095;</div>\n"
+        "      <div class=\"counter\" id=\"counter\"></div>\n"
+        "    </div>\n"
+        "\n"
+        "    <script>\n"
+        "      const pages = [\n"
+        + page_list_js
+        + "\n      ];\n"
+        "      let idx = 0;\n"
+        "\n"
+        "      const img = document.getElementById('pageImg');\n"
+        "      const prevBtn = document.getElementById('prevBtn');\n"
+        "      const nextBtn = document.getElementById('nextBtn');\n"
+        "      const counter = document.getElementById('counter');\n"
+        "\n"
+        "      function render() {\n"
+        "        if (!pages.length) {\n"
+        "          counter.textContent = 'No PDFs found.';\n"
+        "          prevBtn.setAttribute('aria-disabled','true');\n"
+        "          nextBtn.setAttribute('aria-disabled','true');\n"
+        "          return;\n"
+        "        }\n"
+        "        idx = Math.max(0, Math.min(idx, pages.length - 1));\n"
+        "        img.src = pages[idx];\n"
+        "        img.alt = 'Page ' + (idx + 1);\n"
+        "        counter.textContent = (idx + 1) + ' / ' + pages.length;\n"
+        "        prevBtn.setAttribute('aria-disabled', String(idx === 0));\n"
+        "        nextBtn.setAttribute('aria-disabled', String(idx === pages.length - 1));\n"
+        "      }\n"
+        "\n"
+        "      function next() { idx++; render(); }\n"
+        "      function prev() { idx--; render(); }\n"
+        "\n"
+        "      prevBtn.addEventListener('click', prev);\n"
+        "      nextBtn.addEventListener('click', next);\n"
+        "      window.addEventListener('keydown', (e) => {\n"
+        "        if (e.key === 'ArrowRight') next();\n"
+        "        if (e.key === 'ArrowLeft') prev();\n"
+        "      });\n"
+        "\n"
+        "      // Start\n"
+        "      render();\n"
+        "    </script>\n"
+        "  </body>\n"
         "</html>\n"
     )
 
