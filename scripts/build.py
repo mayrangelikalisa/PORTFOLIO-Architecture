@@ -1,23 +1,22 @@
 #!/usr/bin/env python3
-"""Build a GitHub Pages site by converting PDFs in ./pdfs into static HTML.
+"""Build a GitHub Pages site by converting PDFs in ./pdfs into a static site.
 
-Strategy (no PDF embedding):
-- For each PDF:
-  - extract per-page text with pypdf
-  - render each page to a PNG via the Poppler tool `pdftoppm`
-  - generate an HTML page per PDF page that shows the image and selectable text
-- Generate an index.html linking to each PDF's HTML.
+Output goal: the website should reflect the PDF, and only the PDF.
+
+Implementation:
+- Render each PDF page to a PNG via Poppler (`pdftoppm`).
+- Generate one HTML file per page that contains only the page image.
+- Root index redirects to the first PDF’s first page.
 
 Requirements:
 - Python 3.11+
-- `pypdf`
-- Poppler utils installed (pdftoppm) in CI and locally
+- `pypdf` (used for page count)
+- Poppler utils installed (pdftoppm)
 """
 
 from __future__ import annotations
 
 import html
-import os
 import re
 import shutil
 import subprocess
@@ -50,12 +49,6 @@ def ensure_empty_dir(p: Path) -> None:
     if p.exists():
         shutil.rmtree(p)
     p.mkdir(parents=True, exist_ok=True)
-
-
-def copy_tree(src: Path, dst: Path) -> None:
-    if not src.exists():
-        return
-    shutil.copytree(src, dst, dirs_exist_ok=True)
 
 
 def require_tool(tool: str) -> None:
@@ -105,89 +98,55 @@ def _page_num(filename: str) -> int:
     return int(m.group(1)) if m else 10**9
 
 
-def page_html(title: str, page_num: int, total_pages: int, img_rel: str, text: str, nav_rel_prefix: str) -> str:
+def page_html(title: str, page_num: int, total_pages: int, img_rel: str) -> str:
+    # PDF-only rendering: no header, no navigation, no extra text.
+    # The browser window should show only the rendered page image.
     safe_title = html.escape(title)
-    safe_text = html.escape(text or "")
-
-    prev_link = ""
-    next_link = ""
-    if page_num > 1:
-        prev_link = f'<a class="btn" href="{nav_rel_prefix}{page_num-1}.html">Prev</a>'
-    if page_num < total_pages:
-        next_link = f'<a class="btn" href="{nav_rel_prefix}{page_num+1}.html">Next</a>'
-
-    img_block = (
-        f'<figure class="page"><img class="page-img" src="{img_rel}" alt="{safe_title} page {page_num}" /></figure>'
-        if img_rel
-        else '<div class="notice muted">(No page image available in this build; showing extracted text only.)</div>'
-    )
-
     return f"""<!doctype html>
 <html lang=\"en\">
   <head>
     <meta charset=\"utf-8\" />
     <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" />
     <title>{safe_title} — Page {page_num}</title>
-    <link rel=\"stylesheet\" href=\"{nav_rel_prefix}../assets/site.css\" />
+    <style>
+      html, body {{ margin: 0; padding: 0; background: #fff; }}
+      img {{ display: block; width: 100%; height: auto; }}
+    </style>
   </head>
   <body>
-    <header class=\"top\">
-      <div class=\"wrap\">
-        <a class=\"brand\" href=\"{nav_rel_prefix}../index.html\">PDF Site</a>
-        <div class=\"title\">{safe_title}</div>
-        <div class=\"pager\">
-          {prev_link}
-          <span class=\"muted\">Page {page_num} / {total_pages}</span>
-          {next_link}
-        </div>
-      </div>
-    </header>
-
-    <main class=\"wrap\">
-      {img_block}
-
-      <section class=\"text\">
-        <h2>Text (selectable)</h2>
-        <pre>{safe_text}</pre>
-      </section>
-    </main>
+    <img src=\"{img_rel}\" alt=\"{safe_title} page {page_num}\" />
   </body>
 </html>
 """
 
 
 def index_html(items: list[PdfItem]) -> str:
-    links = "\n".join(
-        f'<li><a href="./{html.escape(it.slug)}/1.html">{html.escape(it.title)}</a> <span class="muted">({it.pages} page(s))</span></li>'
-        for it in items
-    )
-
-    empty = "<p class=\"muted\">No PDFs found. Add PDFs into the <code>pdfs/</code> folder and push.</p>"
-
-    docs_block = empty if not items else f'<ul class="doc-list">{links}</ul>'
-
-    return f"""<!doctype html>
+    # PDF-only: if there is at least one PDF, show the first one immediately.
+    if items:
+        first = items[0]
+        return f"""<!doctype html>
 <html lang=\"en\">
   <head>
     <meta charset=\"utf-8\" />
     <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" />
-    <title>PDF Site</title>
-    <link rel=\"stylesheet\" href=\"./assets/site.css\" />
+    <title>{html.escape(first.title)}</title>
+    <meta http-equiv=\"refresh\" content=\"0; url=./{html.escape(first.slug)}/1.html\" />
   </head>
   <body>
-    <header class=\"top\">
-      <div class=\"wrap\">
-        <div class=\"brand\">PDF Site</div>
-        <div class=\"muted\">Converted into static HTML on push</div>
-      </div>
-    </header>
+    <a href=\"./{html.escape(first.slug)}/1.html\">Open</a>
+  </body>
+</html>
+"""
 
-    <main class=\"wrap\">
-      <h1>Documents</h1>
-      {docs_block}
-
-      <p class=\"muted\">Tip: Each document is rendered as images + extracted text (no PDF embedding).</p>
-    </main>
+    return """<!doctype html>
+<html lang=\"en\">
+  <head>
+    <meta charset=\"utf-8\" />
+    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" />
+    <title>No PDF</title>
+  </head>
+  <body>
+    No PDFs found.
   </body>
 </html>
 """
@@ -196,10 +155,7 @@ def index_html(items: list[PdfItem]) -> str:
 def main() -> None:
     ensure_empty_dir(DIST_DIR)
 
-    # Static assets
-    assets_dir = DIST_DIR / "assets"
-    assets_dir.mkdir(parents=True, exist_ok=True)
-    copy_tree(ROOT / "site_py" / "assets", assets_dir)
+    # No extra site assets: output should reflect the PDF only.
 
     items: list[PdfItem] = []
 
@@ -218,31 +174,27 @@ def main() -> None:
         pages = len(reader.pages)
 
         images = render_pdf_pages_to_png(pdf_path, out_img_dir)
-        # If poppler outputs images, trust that count; otherwise fall back to PDF page count.
         total_pages = max(pages, len(images))
 
         title = pdf_path.stem
         items.append(PdfItem(title=title, slug=slug, pages=total_pages))
 
         for i in range(1, total_pages + 1):
-            page_text = ""
-            if i <= pages:
-                try:
-                    page_text = reader.pages[i - 1].extract_text() or ""
-                except Exception:
-                    page_text = ""
-
             img_name = f"page-{i}.png"
             img_path = out_img_dir / img_name
             img_rel = f"./img/{img_name}" if img_path.exists() else ""
+
+            if not img_rel:
+                raise RuntimeError(
+                    f"Missing rendered image for {pdf_path.name} page {i}. "
+                    "Ensure poppler-utils (pdftoppm) is installed in CI."
+                )
 
             html_out = page_html(
                 title=title,
                 page_num=i,
                 total_pages=total_pages,
                 img_rel=img_rel,
-                text=page_text,
-                nav_rel_prefix="./",
             )
             (out_doc_dir / f"{i}.html").write_text(html_out, encoding="utf-8")
 
