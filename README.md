@@ -1,20 +1,26 @@
 # PDF → GitHub Pages (converted to HTML)
 
-Push one or more PDF files into `pdfs/` and this repo will auto-generate a **native static website** (HTML pages) from them, then publish it to GitHub Pages.
+Push one or more PDF files into `pdfs/` and this repo will auto-generate a **static website** from them, then publish it to GitHub Pages.
+
+## Output contract
+
+- The published site is always a single entry point: `dist/index.html` (served as `/index.html`).
+- The PDF is converted to images and laid out as one long page.
+- Each PDF page is shown as a **viewport-sized block** and the page image is scaled to **fit within the screen** (no overflow), preserving aspect ratio.
 
 ## How it works
 
 - PDFs live in `pdfs/`
-- A Python build script converts each PDF into:
+- A Python build script converts PDFs into:
   - per-page PNG renderings (Poppler `pdftoppm`)
-  - per-page HTML files that show the image + extracted selectable text (`pypdf`)
+  - a single HTML file: `dist/index.html`
 - GitHub Actions publishes the generated `dist/` folder to GitHub Pages
 
 ## Quick start
 
 1. Push this repo to GitHub (default branch: `main`).
 2. In GitHub: **Settings → Pages** → set **Source** to **GitHub Actions**.
-3. Add PDFs to `pdfs/` and push.
+3. Add/replace PDFs in `pdfs/` and push.
 
 Your site will be available at:
 

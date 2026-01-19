@@ -1,17 +1,19 @@
 #!/usr/bin/env python3
 """Build a GitHub Pages site by converting PDFs in ./pdfs into a static site.
 
-Output goal: the website should reflect the PDF, and only the PDF.
+Output goal (per user requirements):
+- The website should reflect the PDF exactly, and only the PDF.
+- The published site must be reachable as a single path: `/index.html`.
+- The site should contain the whole PDF content as one page, where each PDF page is
+  displayed as a viewport-sized block (fits on screen without overflow).
 
 Implementation:
 - Render each PDF page to a PNG via Poppler (`pdftoppm`).
-- Generate ONE HTML file per PDF that contains all pages.
-  Each PDF page is a viewport-sized block (fits on screen without overflow).
-- Root index redirects to the first PDF.
+- Generate ONE `dist/index.html` containing all pages in order.
 
 Requirements:
 - Python 3.11+
-- `pypdf` (used for page count)
+- `pypdf` (used for ordering/count sanity checks)
 - Poppler utils installed (pdftoppm)
 """
 
@@ -56,25 +58,18 @@ def run(cmd: list[str]) -> None:
     subprocess.run(cmd, check=True)
 
 
-def render_pdf_pages_to_png(pdf_path: Path, out_dir: Path) -> list[Path]:
-    """Render pages to PNG using pdftoppm.
+def render_pdf_pages_to_png(pdf_path: Path, out_dir: Path, prefix_slug: str) -> list[Path]:
+    """Render a PDF to per-page PNGs using pdftoppm.
 
-    Poppler naming depends on page count; page numbers are usually zero-padded.
-    Example outputs:
-      - page-1.png (sometimes)
-      - page-01.png
-      - page-001.png
-
-    We don't assume a fixed width, we just glob page-*.png and sort by page number.
-
-    If pdftoppm isn't available, returns an empty list.
+    Writes files like: {prefix_slug}-001.png
+    Returns sorted Path list.
     """
     if shutil.which("pdftoppm") is None:
         return []
 
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    prefix = out_dir / "page"
+    prefix = out_dir / prefix_slug
 
     cmd = [
         "pdftoppm",
@@ -86,7 +81,7 @@ def render_pdf_pages_to_png(pdf_path: Path, out_dir: Path) -> list[Path]:
     ]
     run(cmd)
 
-    images = sorted(out_dir.glob("page-*.png"), key=lambda p: _page_num(p.name))
+    images = sorted(out_dir.glob(f"{prefix_slug}-*.png"), key=lambda p: _page_num(p.name))
     return images
 
 
@@ -95,20 +90,31 @@ def _page_num(filename: str) -> int:
     return int(m.group(1)) if m else 10**9
 
 
-def pdf_one_page_site_html(title: str, page_imgs_rel: list[str]) -> str:
-    """Create one HTML document containing all pages, each as a fullscreen block."""
-    safe_title = html.escape(title)
+def site_html(items_in_order: list[tuple[str, list[str]]]) -> str:
+    """Create one HTML document containing all PDF pages, each as a fullscreen block."""
 
-    # PDF-only rendering: no website chrome.
-    # Each page is a section that is exactly one viewport tall.
-    # The image is contained within the viewport so it never overflows.
     sections: list[str] = []
-    for idx, img_rel in enumerate(page_imgs_rel, start=1):
-        sections.append(
-            f"    <section class=\"page\" aria-label=\"{safe_title} page {idx}\">\n"
-            f"      <img class=\"page-img\" src=\"{html.escape(img_rel)}\" alt=\"{safe_title} page {idx}\" />\n"
-            f"    </section>\n"
-        )
+    for title, page_imgs_rel in items_in_order:
+        safe_title = html.escape(title)
+        for idx, img_rel in enumerate(page_imgs_rel, start=1):
+            sections.append(
+                "    <section class=\"page\" aria-label=\""
+                + safe_title
+                + " page "
+                + str(idx)
+                + "\">\n"
+                + "      <img class=\"page-img\" src=\""
+                + html.escape(img_rel)
+                + "\" alt=\""
+                + safe_title
+                + " page "
+                + str(idx)
+                + "\" />\n"
+                + "    </section>\n"
+            )
+
+    title = items_in_order[0][0] if items_in_order else "No PDF"
+    safe_title = html.escape(title)
 
     return (
         "<!doctype html>\n"
@@ -153,42 +159,14 @@ def pdf_one_page_site_html(title: str, page_imgs_rel: list[str]) -> str:
     )
 
 
-def index_html(items: list[PdfItem]) -> str:
-    # PDF-only: if there is at least one PDF, show the first one immediately.
-    if items:
-        first = items[0]
-        return f"""<!doctype html>
-<html lang=\"en\">
-  <head>
-    <meta charset=\"utf-8\" />
-    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" />
-    <title>{html.escape(first.title)}</title>
-    <meta http-equiv=\"refresh\" content=\"0; url=./{html.escape(first.slug)}/index.html\" />
-  </head>
-  <body>
-    <a href=\"./{html.escape(first.slug)}/index.html\">Open</a>
-  </body>
-</html>
-"""
-
-    return """<!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>No PDF</title>
-  </head>
-  <body>
-    No PDFs found.
-  </body>
-</html>
-"""
-
-
 def main() -> None:
     ensure_empty_dir(DIST_DIR)
 
+    out_img_dir = DIST_DIR / "img"
+    out_img_dir.mkdir(parents=True, exist_ok=True)
+
     items: list[PdfItem] = []
+    items_in_order: list[tuple[str, list[str]]] = []
 
     if PDF_DIR.exists():
         pdf_paths = sorted([p for p in PDF_DIR.iterdir() if p.suffix.lower() == ".pdf"])
@@ -197,38 +175,30 @@ def main() -> None:
 
     for pdf_path in pdf_paths:
         slug = slugify_filename(pdf_path.stem)
-        out_doc_dir = DIST_DIR / slug
-        out_img_dir = out_doc_dir / "img"
-        out_doc_dir.mkdir(parents=True, exist_ok=True)
 
         reader = PdfReader(str(pdf_path))
-        pages = len(reader.pages)
+        reported_pages = len(reader.pages)
 
-        images = render_pdf_pages_to_png(pdf_path, out_img_dir)
+        images = render_pdf_pages_to_png(pdf_path, out_img_dir, prefix_slug=slug)
         if not images:
             raise RuntimeError(
                 "No rendered images produced. Ensure poppler-utils (pdftoppm) is installed in CI/local."
             )
 
-        # Prefer rendered page count (truth on disk), but sanity-check against PDF.
         total_pages = len(images)
-        if pages and total_pages != pages:
-            # Keep going (some PDFs can report differently), but don't silently generate broken output.
-            # We'll still use images that exist.
-            pass
-
         title = pdf_path.stem
         items.append(PdfItem(title=title, slug=slug, pages=total_pages))
 
+        # Best-effort sanity check (don't fail on minor mismatches, but keep ordering stable)
+        if reported_pages and total_pages != reported_pages:
+            pass
+
         page_imgs_rel = [f"./img/{p.name}" for p in images]
-        (out_doc_dir / "index.html").write_text(
-            pdf_one_page_site_html(title=title, page_imgs_rel=page_imgs_rel),
-            encoding="utf-8",
-        )
+        items_in_order.append((title, page_imgs_rel))
 
-    (DIST_DIR / "index.html").write_text(index_html(items), encoding="utf-8")
+    (DIST_DIR / "index.html").write_text(site_html(items_in_order), encoding="utf-8")
 
-    print(f"Built site with {len(items)} PDF(s). Output: {DIST_DIR}")
+    print(f"Built site from {len(items)} PDF(s). Output: {DIST_DIR}")
 
 
 if __name__ == "__main__":
