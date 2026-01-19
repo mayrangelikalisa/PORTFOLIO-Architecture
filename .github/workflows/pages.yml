@@ -5,10 +5,9 @@ on:
     branches: [ "main" ]
     paths:
       - "pdfs/**"
-      - "site/**"
       - "scripts/**"
-      - "package.json"
-      - "package-lock.json"
+      - "requirements.txt"
+      - "site_py/**"
       - ".github/workflows/pages.yml"
   workflow_dispatch:
 
@@ -28,17 +27,22 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Node
-        uses: actions/setup-node@v4
+      - name: Setup Python
+        uses: actions/setup-python@v5
         with:
-          node-version: 20
-          cache: npm
+          python-version: "3.11"
+          cache: "pip"
 
-      - name: Install dependencies
-        run: npm ci
+      - name: Install poppler-utils
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y poppler-utils
+
+      - name: Install Python dependencies
+        run: pip install -r requirements.txt
 
       - name: Build site
-        run: npm run build
+        run: python scripts/build.py
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
@@ -55,4 +59,3 @@ jobs:
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
-

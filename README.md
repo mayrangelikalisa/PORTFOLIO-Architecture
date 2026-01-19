@@ -1,45 +1,49 @@
-# PDF → GitHub Pages
+# PDF → GitHub Pages (converted to HTML)
 
-Push one or more PDF files into `pdfs/` and this repo will auto-generate a small website that lists the PDFs and renders each PDF directly in the browser.
+Push one or more PDF files into `pdfs/` and this repo will auto-generate a **native static website** (HTML pages) from them, then publish it to GitHub Pages.
 
 ## How it works
 
 - PDFs live in `pdfs/`
-- A GitHub Action builds the site into `dist/`
-- The Action publishes `dist/` to GitHub Pages
+- A Python build script converts each PDF into:
+  - per-page PNG renderings (Poppler `pdftoppm`)
+  - per-page HTML files that show the image + extracted selectable text (`pypdf`)
+- GitHub Actions publishes the generated `dist/` folder to GitHub Pages
 
 ## Quick start
 
-1. Create a new GitHub repo from this folder (or upload these files).
-2. In GitHub: **Settings → Pages**
-   - **Build and deployment**: set **Source** to **GitHub Actions**
-3. Commit and push.
-4. Add PDFs to `pdfs/` and push again.
+1. Push this repo to GitHub (default branch: `main`).
+2. In GitHub: **Settings → Pages** → set **Source** to **GitHub Actions**.
+3. Add PDFs to `pdfs/` and push.
 
-The site will be available at:
+Your site will be available at:
 
 - `https://<your-user>.github.io/<your-repo>/`
 
-## Adding PDFs
-
-Put files in:
-
-- `pdfs/your-file.pdf`
-
-and commit + push.
-
 ## Local build (optional)
 
-If you have Node.js 20+ installed:
+You need Python 3.11+ and Poppler tools.
+
+On Ubuntu/Debian:
 
 ```bash
-npm install
-npm run build
-npm run preview
+sudo apt-get update
+sudo apt-get install -y poppler-utils
 ```
 
-## Notes
+Then:
 
-- Rendering uses Mozilla’s `pdfjs-dist` (client-side), so the published site includes your PDFs unchanged.
-- Filenames are used as titles; rename PDFs if you want nicer titles.
+```bash
+python -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+python scripts/build.py
+```
 
+## Troubleshooting
+
+### "Failed to create deployment (status: 404)" in `actions/deploy-pages`
+
+This usually means GitHub Pages isn’t enabled for the repo yet.
+
+Fix: **Settings → Pages → Source: GitHub Actions**, then re-run the workflow.

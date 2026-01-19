@@ -4,6 +4,11 @@ dist/
 .site/
 *.log
 
+# Python
+.venv/
+__pycache__/
+*.pyc
+
 # JetBrains
 .idea/
 
