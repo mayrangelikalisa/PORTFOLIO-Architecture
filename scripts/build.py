@@ -164,6 +164,8 @@ def index_html(items: list[PdfItem]) -> str:
 
     empty = "<p class=\"muted\">No PDFs found. Add PDFs into the <code>pdfs/</code> folder and push.</p>"
 
+    docs_block = empty if not items else f'<ul class="doc-list">{links}</ul>'
+
     return f"""<!doctype html>
 <html lang=\"en\">
   <head>
@@ -182,7 +184,7 @@ def index_html(items: list[PdfItem]) -> str:
 
     <main class=\"wrap\">
       <h1>Documents</h1>
-      {empty if not items else f"<ul class=\"doc-list\">{links}</ul>"}
+      {docs_block}
 
       <p class=\"muted\">Tip: Each document is rendered as images + extracted text (no PDF embedding).</p>
     </main>
