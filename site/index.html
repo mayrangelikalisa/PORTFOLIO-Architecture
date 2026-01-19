@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>PDF Library</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <header class="header">
+      <div class="container">
+        <h1>PDF Library</h1>
+        <p class="muted">Select a PDF to view its pages.</p>
+      </div>
+    </header>
+
+    <main class="container">
+      <section class="grid">
+        <aside class="sidebar">
+          <h2>Documents</h2>
+          <div id="pdf-list" class="list"></div>
+        </aside>
+
+        <section class="viewer">
+          <div class="viewer-header">
+            <div>
+              <h2 id="doc-title">No document selected</h2>
+              <div class="muted" id="doc-meta"></div>
+            </div>
+            <div class="controls">
+              <button id="prev" disabled>Prev</button>
+              <span id="page-indicator" class="muted">—</span>
+              <button id="next" disabled>Next</button>
+              <a id="download" class="button" href="#" download>Download</a>
+            </div>
+          </div>
+
+          <div class="canvas-wrap">
+            <canvas id="pdf-canvas"></canvas>
+          </div>
+
+          <div id="status" class="status muted"></div>
+        </section>
+      </section>
+
+      <footer class="footer muted">
+        Generated on push via GitHub Actions.
+      </footer>
+    </main>
+
+    <script>
+      // Replaced during build
+      const PDF_LIST = /*__PDF_LIST__*/[];
+    </script>
+    <script type="module" src="./app.js"></script>
+  </body>
+</html>
+

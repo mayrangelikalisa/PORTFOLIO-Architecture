@@ -1,0 +1,14 @@
+{
+  "name": "pdf-to-gh-pages",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "preview": "npx --yes serve dist"
+  },
+  "dependencies": {
+    "pdfjs-dist": "^4.10.38"
+  }
+}
+
