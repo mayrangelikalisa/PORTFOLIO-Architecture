@@ -1,22 +1,24 @@
-# PDF → GitHub Pages (converted to HTML)
+# PDF → GitHub Pages (interactive-friendly)
 
-Push one or more PDF files into `pdfs/` and this repo will auto-generate a **static website** from them, then publish it to GitHub Pages.
+Push a PDF into `pdfs/` and this repo will auto-generate a **static website** for GitHub Pages.
 
 ## Output contract
 
 - The published site is always a single entry point: `dist/index.html` (served as `/index.html`).
-- The PDF is converted to images and laid out as one long page.
-- Each PDF page is shown as a **viewport-sized block** and the page image is scaled to **fit within the screen** (no overflow), preserving aspect ratio.
+- The PDF is published as a **native web page** rendered with **PDF.js** (canvas + selectable text + clickable links).
+- Navigation: left/right arrows (and keyboard arrow keys).
+- Zoom:
+  - Desktop: Ctrl/Cmd + mouse wheel
+  - Mobile: pinch-to-zoom
 
 ## How it works
 
 - PDFs live in `pdfs/`
-- A Python build script converts PDFs into:
-  - per-page PNG renderings (Poppler `pdftoppm`)
-  - a single HTML file: `dist/index.html`
-- GitHub Actions publishes the generated `dist/` folder to GitHub Pages
+- A Python build script copies the first PDF to `dist/document.pdf` and generates `dist/index.html`.
+- The build also vendors a minimal set of `pdfjs-dist` files into `dist/pdfjs/` so the deployed site does **not** depend on external CDNs.
+- GitHub Actions publishes the generated `dist/` folder to GitHub Pages.
 
-## Quick start
+## Setup (GitHub)
 
 1. Push this repo to GitHub (default branch: `main`).
 2. In GitHub: **Settings → Pages** → set **Source** to **GitHub Actions**.
@@ -26,25 +28,22 @@ Your site will be available at:
 
 - `https://<your-user>.github.io/<your-repo>/`
 
-## Local build (optional)
+## Local preview
 
-You need Python 3.11+ and Poppler tools.
-
-On Ubuntu/Debian:
-
-```bash
-sudo apt-get update
-sudo apt-get install -y poppler-utils
-```
-
-Then:
+Use a local server (opening `index.html` via `file://` can block PDF loading in some browsers).
 
 ```bash
 python -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 python scripts/build.py
+cd dist
+python -m http.server 8000
 ```
+
+Then open:
+
+- http://127.0.0.1:8000/
 
 ## Troubleshooting
 

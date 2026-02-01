@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import html
 import shutil
+import subprocess
 from pathlib import Path
 
 from pypdf import PdfReader
@@ -37,14 +38,71 @@ def ensure_empty_dir(p: Path) -> None:
     p.mkdir(parents=True, exist_ok=True)
 
 
+def ensure_pdfjs_assets(dist_dir: Path, version: str = "4.10.38") -> Path:
+    """Ensure PDF.js assets exist under dist/pdfjs.
+
+    We vendor the minimal pdfjs-dist files into the published artifact so the
+    site doesn't depend on external CDNs (often blocked by networks or CSP).
+
+    Requires Node/npm in CI. GitHub hosted runners include it by default.
+    """
+
+    pdfjs_out = dist_dir / "pdfjs"
+    pdfjs_out.mkdir(parents=True, exist_ok=True)
+
+    # Use a throwaway npm prefix inside dist/. This keeps the repo clean.
+    npm_prefix = dist_dir / ".npm"
+    npm_prefix.mkdir(parents=True, exist_ok=True)
+
+    # Install pdfjs-dist into dist/.npm/node_modules/...
+    subprocess.run(
+        [
+            "npm",
+            "install",
+            "--no-audit",
+            "--no-fund",
+            "--silent",
+            "--prefix",
+            str(npm_prefix),
+            f"pdfjs-dist@{version}",
+        ],
+        check=True,
+    )
+
+    pkg_root = npm_prefix / "node_modules" / "pdfjs-dist"
+    build_dir = pkg_root / "build"
+    web_dir = pkg_root / "web"
+
+    required = [
+        build_dir / "pdf.min.mjs",
+        build_dir / "pdf.worker.min.mjs",
+        web_dir / "pdf_viewer.mjs",
+        web_dir / "pdf_viewer.css",
+    ]
+    missing = [p for p in required if not p.exists()]
+    if missing:
+        raise RuntimeError(
+            "pdfjs-dist install succeeded, but required files are missing: "
+            + ", ".join(str(p) for p in missing)
+        )
+
+    # Copy into dist/pdfjs
+    shutil.copyfile(build_dir / "pdf.min.mjs", pdfjs_out / "pdf.min.mjs")
+    shutil.copyfile(build_dir / "pdf.worker.min.mjs", pdfjs_out / "pdf.worker.min.mjs")
+    shutil.copyfile(web_dir / "pdf_viewer.mjs", pdfjs_out / "pdf_viewer.mjs")
+    shutil.copyfile(web_dir / "pdf_viewer.css", pdfjs_out / "pdf_viewer.css")
+
+    # Remove the temporary npm install tree (keeps the published dist small/clean)
+    shutil.rmtree(npm_prefix, ignore_errors=True)
+
+    return pdfjs_out
+
+
 def site_html(pdf_rel_path: str, title: str, total_pages: int) -> str:
     safe_title = html.escape(title)
 
-    # PDF.js from CDN.
-    # We load both the core library and viewer helpers (text + annotation layers).
-    pdfjs_ver = "4.10.38"
-    pdfjs_build = f"https://cdn.jsdelivr.net/npm/pdfjs-dist@{pdfjs_ver}/build"
-    pdfjs_web = f"https://cdn.jsdelivr.net/npm/pdfjs-dist@{pdfjs_ver}/web"
+    # Self-hosted PDF.js (copied into dist/pdfjs by the build).
+    pdfjs_build = "./pdfjs"
 
     return (
         "<!doctype html>\n"
@@ -53,7 +111,7 @@ def site_html(pdf_rel_path: str, title: str, total_pages: int) -> str:
         "    <meta charset=\"utf-8\" />\n"
         "    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=yes\" />\n"
         f"    <title>{safe_title}</title>\n"
-        f"    <link rel=\"stylesheet\" href=\"{pdfjs_web}/pdf_viewer.css\" />\n"
+        f"    <link rel=\"stylesheet\" href=\"{pdfjs_build}/pdf_viewer.css\" />\n"
         "    <style>\n"
         "      :root {\n"
         "        color-scheme: light;\n"
@@ -183,7 +241,7 @@ def site_html(pdf_rel_path: str, title: str, total_pages: int) -> str:
         "\n"
         "    <script type=\"module\">\n"
         f"      import * as pdfjsLib from '{pdfjs_build}/pdf.min.mjs';\n"
-        f"      import * as pdfjsViewer from '{pdfjs_web}/pdf_viewer.mjs';\n"
+        f"      import * as pdfjsViewer from '{pdfjs_build}/pdf_viewer.mjs';\n"
         "\n"
         "      const PDF_URL = "
         + repr(pdf_rel_path)
@@ -396,6 +454,9 @@ def main() -> None:
     # Copy PDF into dist. Use a stable filename for index.html to reference.
     out_pdf = DIST_DIR / "document.pdf"
     shutil.copyfile(pdf_path, out_pdf)
+
+    # Vendor PDF.js into dist so GitHub Pages doesn't depend on a CDN.
+    ensure_pdfjs_assets(DIST_DIR)
 
     # Generate index.html as the only entry point.
     (DIST_DIR / "index.html").write_text(
